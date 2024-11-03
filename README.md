@@ -2,19 +2,19 @@
 # CODE MOTOR CONTROL
 
 # import Library 
-import websockets
-import json
-import asyncio
-import threading
-import cv2
-import os
-from flask import Flask, render_template, Response
-from gpiozero import Motor,DistanceSensor
-import time
-from ultralytics.utils.plotting import Annotator
-from ultralytics import YOLO
-from datetime import datetime
-from mpu6050 import mpu6050
+    import websockets
+    import json
+    import asyncio
+    import threading
+    import cv2
+    import os
+    from flask import Flask, render_template, Response
+    from gpiozero import Motor,DistanceSensor
+    import time
+    from ultralytics.utils.plotting import Annotator
+    from ultralytics import YOLO
+    from datetime import datetime
+    from mpu6050 import mpu6050
 
 app = Flask(__name__)
 
