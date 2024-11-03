@@ -2,7 +2,6 @@
 
 # CODE MOTOR CONTROL
 
-
 import websockets
 import json
 import asyncio
@@ -19,7 +18,7 @@ from mpu6050 import mpu6050
 
 app = Flask(__name__)
 
-
+# กำหนดตัวแปร camera สำหรับการใช้งานร่วมกัน
 camera = cv2.VideoCapture(0)  # ดึงสัญญาณจากกล้อง (0 คือกล้องเริ่มต้น)
 if not camera.isOpened():
     raise ValueError("ไม่สามารถเปิดกล้องได้ กรุณาตรวจสอบการเชื่อมต่อของกล้อง.")
@@ -33,6 +32,8 @@ gyro_lock = threading.Lock()
 def index():
     return render_template('holdbtn.html')
 
+
+# ฟังก์ชันสำหรับสตรีมวิดีโอ
 def generate_frames():
     global latest_frame
     while True:
@@ -493,3 +494,5 @@ if __name__ == "__main__":
     finally:
         # ปิดกล้องและทำความสะอาด GPIO
         camera.release()
+
+
