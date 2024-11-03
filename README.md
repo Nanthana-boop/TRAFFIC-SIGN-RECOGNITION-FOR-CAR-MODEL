@@ -179,171 +179,160 @@
 
 
 # ฟังก์ชันสำหรับการอ่านค่าระยะทางจากเซ็นเซอร์อัลตร้าโซนิค
-ultrasonic_enabled = True  # ตัวแปรนี้ใช้เปิด/ปิดการตรวจจับเซ็นเซอร์
+    ultrasonic_enabled = True  # ตัวแปรนี้ใช้เปิด/ปิดการตรวจจับเซ็นเซอร์
 
-def check_obstacle():
-    # ถ้า ultrasonic_enabled เป็น False จะไม่ตรวจจับสิ่งกีดขวาง
-    if not ultrasonic_enabled:
+    def check_obstacle():
+            # ถ้า ultrasonic_enabled เป็น False จะไม่ตรวจจับสิ่งกีดขวาง
+        if not ultrasonic_enabled:
+            return False
+        distance = ultrasonic_sensor.distance * 100  # แปลงเป็นเซนติเมตร
+        print(f"Distance: {distance:.2f} cm")
+    
+        # ตรวจสอบระยะทาง ถ้าต่ำกว่า 20 เซนติเมตรให้หยุดรถ
+        if distance < 20:  # ถ้าระยะทางน้อยกว่า 20 ซม. ให้หยุดหรือถอยหลัง
+            stop_movement()
+            time.sleep(1) 
+            print("Obstacle detected within 20 cm! Stopping the vehicle.")
+            move_backward
+            time.sleep(1)
+            turn_left_opj()
+             time.sleep(0.6)
+            move_forward() 
+            return True
         return False
-    
-    distance = ultrasonic_sensor.distance * 100  # แปลงเป็นเซนติเมตร
-    print(f"Distance: {distance:.2f} cm")
-    
-    # ตรวจสอบระยะทาง ถ้าต่ำกว่า 20 เซนติเมตรให้หยุดรถ
-    if distance < 20:  # ถ้าระยะทางน้อยกว่า 20 ซม. ให้หยุดหรือถอยหลัง
-        stop_movement()
-        time.sleep(1) 
-        print("Obstacle detected within 20 cm! Stopping the vehicle.")
-        move_backward
-        time.sleep(1)
-        turn_left_opj()
-        time.sleep(0.6)
-        move_forward() 
-        return True
-    return False
 
-#-------------------------------------------------------------------------------------------------------#
 # ตัวแปรสำหรับเก็บโหมดปัจจุบันและสถานะการทำงานของโหมดอัตโนมัติ
-current_mode = "manual"
-auto_running = False  # ตัวแปรสำหรับควบคุมโหมดอัตโนมัติ
-stop_running = False  # สถานะสำหรับการหยุด
-yolo_detected = False  # ตัวแปรนี้จะเปลี่ยนเป็น True เมื่อ YOLO 
-last_detected_sign = None  # ประกาศตัวแปร global ข้างนอกฟังก์ชัน
-gyro_running = False  # ตัวแปรสถานะสำหรับการทำงานของ Gyroscope
-sensor_running = False  # ตัวแปรสถานะสำหรับการทำงานของเซ็นเซอร์
-
-# 
+    current_mode = "manual"
+    auto_running = False  # ตัวแปรสำหรับควบคุมโหมดอัตโนมัติ
+    stop_running = False  # สถานะสำหรับการหยุด
+    yolo_detected = False  # ตัวแปรนี้จะเปลี่ยนเป็น True เมื่อ YOLO 
+    last_detected_sign = None  # ประกาศตัวแปร global ข้างนอกฟังก์ชัน
+    gyro_running = False  # ตัวแปรสถานะสำหรับการทำงานของ Gyroscope
+    sensor_running = False  # ตัวแปรสถานะสำหรับการทำงานของเซ็นเซอร์
 
 # ฟังก์ชัน YOLO สำหรับตรวจจับวัตถุและบันทึกภาพในโฟลเดอร์ captures
-def yolo_inference():
-    global latest_frame, yolo_detected, current_mode, last_detected_sign, objects_detected
-    model = YOLO("best16.pt")
+    def yolo_inference():
+        global latest_frame, yolo_detected, current_mode, last_detected_sign, objects_detected
+        model = YOLO("best16.pt")
+        if not os.path.exists("captures"):
+            os.makedirs("captures")
+        # ตัวแปรสำหรับบันทึกป้ายที่ตรวจจับล่าสุด และเวลาที่ตรวจจับล่าสุด
+        last_sign_detected = None
+        last_detection_time = 0
+        cooldown_period = 5  # ช่วงเวลาหน่วง 5 วินาที
+        # ตัวแปรสำหรับบันทึกสถานะการบันทึกภาพ
+        captured_signs = {}
+
+        while True:
+            if latest_frame is None or current_mode == "manual":
+                continue  # ข้ามไปถ้าอยู่ในโหมด manual
+            frame = latest_frame.copy()
+
+            frame_resized = cv2.resize(frame, (480, 480))
+            results = model(frame_resized, conf=0.7)
+            annotator = Annotator(frame_resized)
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            objects_detected = False
+
+            # ตั้งตัวแปรชั่วคราวสำหรับเก็บค่าป้ายที่ตรวจพบ
+            detected_sign = None
+            for result in results:
+                boxes = result.boxes
+                if len(boxes) > 0:
+                    objects_detected = True
+                    for box in boxes:
+                        b = box.xyxy[0].tolist()
+                        c = int(box.cls)
+                        confidence = box.conf.item()  # แปลง Tensor เป็น float
+                        label = f"{model.names[c]} {confidence:.2f}"  # เพิ่มความเชื่อมั่นลงใน label
+
+                        if confidence >= 0.6:
+                            annotator.box_label(b, label)
+
+                        # ดีบักข้อมูลเพื่อเช็คว่าป้ายที่ตรวจพบคืออะไร
+                        print(f"Detected: {model.names[c]} with confidence {confidence}")
+
+                        # ตรวจจับป้ายจราจร
+                        if ultrasonic_sensor.distance * 100 <= 60 and model.names[c] in ['No-Entry', 'Turn-Left', 'Turn-Right', 'End', 'Stop', 'No-Turn-Left', 'No-Turn-Right', 'U-Turn', 'Not-know']:
+                            detected_sign = model.names[c]  # เก็บชื่อป้ายที่ตรวจเจอ
+                            yolo_detected = True
+                            print(f"Sign detected: {detected_sign}")  # ดีบักป้ายที่ตรวจเจอ
+
+            if detected_sign:
+                # เช็คว่าป้ายถูกบันทึกไปแล้วในรอบนี้หรือยัง
+                if  detected_sign not in captured_signs or captured_signs[detected_sign] is False:
     
-    if not os.path.exists("captures"):
-        os.makedirs("captures")
-        
-    # ตัวแปรสำหรับบันทึกป้ายที่ตรวจจับล่าสุด และเวลาที่ตรวจจับล่าสุด
-    last_sign_detected = None
-    last_detection_time = 0
-    cooldown_period = 5  # ช่วงเวลาหน่วง 5 วินาที
+                    # สร้างโฟลเดอร์สำหรับแต่ละป้าย ถ้ายังไม่มี
+                    sign_folder = f"captures/{detected_sign}"
+                    if not os.path.exists(sign_folder):
+                        os.makedirs(sign_folder)
 
-    # ตัวแปรสำหรับบันทึกสถานะการบันทึกภาพ
-    captured_signs = {}
+                    # บันทึกภาพตามประเภทป้ายที่ตรวจเจอ
+                    last_detected_sign = detected_sign
+                    print(f"{last_detected_sign} sign detected, saving image.")
+                    frame_with_detections = annotator.result()
+                    image_path = f"{sign_folder}/{timestamp}.jpg"  # ตั้งชื่อไฟล์ด้วย timestamp
+                    cv2.imwrite(image_path, frame_with_detections)
+                    print(f"Saved image: {image_path}")
+                    # ทำเครื่องหมายว่าป้ายนี้ถูกบันทึกแล้ว
+                    captured_signs[detected_sign] = True
+                else:
+                    print(f"{detected_sign} already captured, waiting for next detection.")
 
-    while True:
-        if latest_frame is None or current_mode == "manual":
-            continue  # ข้ามไปถ้าอยู่ในโหมด manual
-        frame = latest_frame.copy()
+            # รีเซ็ตสถานะการบันทึกเมื่อป้ายไม่ถูกตรวจเจอ
+            if not detected_sign:
+                captured_signs = {sign: False for sign in captured_signs}
 
-        frame_resized = cv2.resize(frame, (480, 480))
-        results = model(frame_resized, conf=0.7)
+            time.sleep(0.1)
 
-        annotator = Annotator(frame_resized)
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        objects_detected = False
+# ฟังก์ชัโหมดอัตโนมัติ
+    def auto_mode():
+        global auto_running, current_mode, yolo_detected, last_detected_sign, ultrasonic_enabled
+        auto_running = True  # เปิดสถานะการทำงานของโหมดอัตโนมัติ
+        sign_detected = False  # ตัวแปรสำหรับตรวจสอบว่ามีการตรวจจับป้ายแล้ว
 
-        # ตั้งตัวแปรชั่วคราวสำหรับเก็บค่าป้ายที่ตรวจพบ
-        detected_sign = None
-
-        for result in results:
-            boxes = result.boxes
-            if len(boxes) > 0:
-                objects_detected = True
-                for box in boxes:
-                    b = box.xyxy[0].tolist()
-                    c = int(box.cls)
-                    confidence = box.conf.item()  # แปลง Tensor เป็น float
-                    label = f"{model.names[c]} {confidence:.2f}"  # เพิ่มความเชื่อมั่นลงใน label
-
-                    if confidence >= 0.6:
-                        annotator.box_label(b, label)
-
-                    # ดีบักข้อมูลเพื่อเช็คว่าป้ายที่ตรวจพบคืออะไร
-                    print(f"Detected: {model.names[c]} with confidence {confidence}")
-
-                    # ตรวจจับป้ายจราจร
-                    if ultrasonic_sensor.distance * 100 <= 60 and model.names[c] in ['No-Entry', 'Turn-Left', 'Turn-Right', 'End', 'Stop', 'No-Turn-Left', 'No-Turn-Right', 'U-Turn', 'Not-know']:
-                        detected_sign = model.names[c]  # เก็บชื่อป้ายที่ตรวจเจอ
-                        yolo_detected = True
-                        print(f"Sign detected: {detected_sign}")  # ดีบักป้ายที่ตรวจเจอ
-
-        if detected_sign:
-            # เช็คว่าป้ายถูกบันทึกไปแล้วในรอบนี้หรือยัง
-            if detected_sign not in captured_signs or captured_signs[detected_sign] is False:
-    
-                # สร้างโฟลเดอร์สำหรับแต่ละป้าย ถ้ายังไม่มี
-                sign_folder = f"captures/{detected_sign}"
-                if not os.path.exists(sign_folder):
-                    os.makedirs(sign_folder)
-
-                # บันทึกภาพตามประเภทป้ายที่ตรวจเจอ
-                last_detected_sign = detected_sign
+        while True:
+            if auto_running and current_mode == "auto":
+                # ตรวจสอบเงื่อนไขของการตรวจจับป้ายจาก YOLO
+                if yolo_detected and not sign_detected and last_detected_sign is not None:
+                    print(f"YOLO detected a sign: {last_detected_sign}, executing action.")
                 
-                print(f"{last_detected_sign} sign detected, saving image.")
-
-                frame_with_detections = annotator.result()
-                image_path = f"{sign_folder}/{timestamp}.jpg"  # ตั้งชื่อไฟล์ด้วย timestamp
-                cv2.imwrite(image_path, frame_with_detections)
-                print(f"Saved image: {image_path}")
-
-                # ทำเครื่องหมายว่าป้ายนี้ถูกบันทึกแล้ว
-                captured_signs[detected_sign] = True
-            else:
-                print(f"{detected_sign} already captured, waiting for next detection.")
-
-        # รีเซ็ตสถานะการบันทึกเมื่อป้ายไม่ถูกตรวจเจอ
-        if not detected_sign:
-            captured_signs = {sign: False for sign in captured_signs}
-
-        time.sleep(0.1)
-
-def auto_mode():
-    global auto_running, current_mode, yolo_detected, last_detected_sign, ultrasonic_enabled
-    auto_running = True  # เปิดสถานะการทำงานของโหมดอัตโนมัติ
-    sign_detected = False  # ตัวแปรสำหรับตรวจสอบว่ามีการตรวจจับป้ายแล้ว
-
-    while True:
-        if auto_running and current_mode == "auto":
-            # ตรวจสอบเงื่อนไขของการตรวจจับป้ายจาก YOLO
-            if yolo_detected and not sign_detected and last_detected_sign is not None:
-                print(f"YOLO detected a sign: {last_detected_sign}, executing action.")
+                    # ปิดการตรวจจับเซ็นเซอร์ชั่วคราว
+                    ultrasonic_enabled = False
+            
+                    # ดำเนินการตามป้ายที่ตรวจพบ
+                    if last_detected_sign == 'No-Turn-Left':
+                        print("No Turn Left sign detected, turning right.")
+                        turn_right()  # เลี้ยวขวา
+                        time.sleep(0.7)  # ลดระยะเวลาหน่วง
+                    
+                    elif last_detected_sign == 'No-Entry':
+                        print("No Entry sign detected, moving backward.")
+                        turn_around_180()  # ฟังก์ชันหมุนรถกลับ 180 องศา
+                        time.sleep(1.2)  # รอให้หมุนเสร็จ
                 
-                # ปิดการตรวจจับเซ็นเซอร์ชั่วคราว
-                ultrasonic_enabled = False
-                
-                # ดำเนินการตามป้ายที่ตรวจพบ
-                if last_detected_sign == 'No-Turn-Left':
-                    print("No Turn Left sign detected, turning right.")
-                    turn_right()  # เลี้ยวขวา
-                    time.sleep(0.7)  # ลดระยะเวลาหน่วง
-                    
-                elif last_detected_sign == 'No-Entry':
-                    print("No Entry sign detected, moving backward.")
-                    turn_around_180()  # ฟังก์ชันหมุนรถกลับ 180 องศา
-                    time.sleep(1.2)  # รอให้หมุนเสร็จ
-                
-                elif last_detected_sign == 'U-Turn':
-                    print("U Turn sign detected, moving backward.")
-                    turn_around_180_left()  # ฟังก์ชันหมุนรถกลับ 180 องศา
-                    time.sleep(0.9)  # รอให้หมุนเสร็จ
+                    elif last_detected_sign == 'U-Turn':
+                        print("U Turn sign detected, moving backward.")
+                        turn_around_180_left()  # ฟังก์ชันหมุนรถกลับ 180 องศา
+                        time.sleep(0.9)  # รอให้หมุนเสร็จ
 
-                elif last_detected_sign == 'Turn-Left':
-                    print("เจอป้ายเลี้ยวซ้าย, กำลังเลี้ยวซ้าย.")
-                    turn_left()  # เลี้ยวซ้าย
-                    time.sleep(0.6)  # ลดระยะเวลาหน่วง
+                    elif last_detected_sign == 'Turn-Left':
+                        print("เจอป้ายเลี้ยวซ้าย, กำลังเลี้ยวซ้าย.")
+                        turn_left()  # เลี้ยวซ้าย
+                        time.sleep(0.6)  # ลดระยะเวลาหน่วง
                     
-                elif last_detected_sign == 'Turn-Right':
-                    print("เจอป้ายเลี้ยวขวา, กำลังเลี้ยวขวา")
-                    turn_right()  # เลี้ยวขวา
-                    time.sleep(0.75)  # ลดระยะเวลาหน่วง
+                    elif last_detected_sign == 'Turn-Right':
+                        print("เจอป้ายเลี้ยวขวา, กำลังเลี้ยวขวา")
+                        turn_right()  # เลี้ยวขวา
+                        time.sleep(0.75)  # ลดระยะเวลาหน่วง
                     
-                elif last_detected_sign == 'No-Turn-Right':
-                    print("No Turn Right sign detected, turning left.")
-                    no_turn_right()  # เลี้ยวซ้าย
-                    time.sleep(0.6)  # ลดระยะเวลาหน่วง
+                    elif last_detected_sign == 'No-Turn-Right':
+                        print("No Turn Right sign detected, turning left.")
+                        no_turn_right()  # เลี้ยวซ้าย
+                        time.sleep(0.6)  # ลดระยะเวลาหน่วง
                     
                     
-                elif last_detected_sign == 'Stop':
+                    elif last_detected_sign == 'Stop':
                     print("Stop sign detected. Stopping for 3 seconds.")
                     stop_movement()  # หยุดรถ
                     time.sleep(3)  # หน่วงเวลาสั้นลง
@@ -377,72 +366,72 @@ def auto_mode():
 
             time.sleep(0.05)  # ลดการหน่วงเวลาในลูป
 
-#--------------------------------------------------------------------------------------------------------------#
+
 # ฟังก์ชัน WebSocket
-async def handler(websocket):
-    global current_mode, auto_running,yolo_detected
-    try:
-        async for message in websocket:
-            data = json.loads(message)
-            print(f"Received: {data}")
+    async def handler(websocket):
+        global current_mode, auto_running,yolo_detected
+        try:
+            async for message in websocket:
+                data = json.loads(message)
+                print(f"Received: {data}")
 
-            if data['status'] == "manual":
-                current_mode = "manual"
-                auto_running = False  # ปิดโหมดอัตโนมัติ
-                stop_movement()  # หยุดการทำงานของมอเตอร์ในโหมดอัตโนมัติ
-                print("Switched to manual mode.")
-                # หยุดการทำงานของ YOLO และ auto mode
-                yolo_detected = False
+                if data['status'] == "manual":
+                    current_mode = "manual"
+                    auto_running = False  # ปิดโหมดอัตโนมัติ
+                    stop_movement()  # หยุดการทำงานของมอเตอร์ในโหมดอัตโนมัติ
+                    print("Switched to manual mode.")
+                    # หยุดการทำงานของ YOLO และ auto mode
+                    yolo_detected = False
+                    
+                elif data['status'] == "auto":
+                    current_mode = "auto"
+                    auto_running = True 
+                    auto_thread = threading.Thread(target=auto_mode)
+                    auto_thread.start()# เปิดโหมดอัตโนมัติ
+                    print("Switched to auto mode.")
                 
-            elif data['status'] == "auto":
-                current_mode = "auto"
-                auto_running = True 
-                auto_thread = threading.Thread(target=auto_mode)
-                auto_thread.start()# เปิดโหมดอัตโนมัติ
-                print("Switched to auto mode.")
-            
-            elif data['status'] == "stop":
-                stop_all()  # เรียกฟังก์ชันหยุดทั้งหมด
-                print("Switched to stop mode.")
-            
-            # การควบคุมในโหมด manual เท่านั้น
-            if current_mode == "manual":
-                if data['status'] == "w":
-                    move_forward()
-                elif data['status'] == "s":
-                    move_backward()
-                elif data['status'] == "a":
-                    turn_left()
-                elif data['status'] == "d":
-                    turn_right()
                 elif data['status'] == "stop":
-                    stop_all()
-    except websockets.exceptions.ConnectionClosedError as e:
-        print(f"Connection closed: {e}")
+                    stop_all()  # เรียกฟังก์ชันหยุดทั้งหมด
+                    print("Switched to stop mode.")
+                
+                # การควบคุมในโหมด manual เท่านั้น
+                if current_mode == "manual":
+                    if data['status'] == "w":
+                        move_forward()
+                    elif data['status'] == "s":
+                        move_backward()
+                    elif data['status'] == "a":
+                        turn_left()
+                    elif data['status'] == "d":
+                        turn_right()
+                    elif data['status'] == "stop":
+                        stop_all()
+        except websockets.exceptions.ConnectionClosedError as e:
+            print(f"Connection closed: {e}")
 
-async def main():
-    print("WebSocket server starting...")
-    async with websockets.serve(handler, "", 1234):
-        await asyncio.Future()
-
-def start_websocket_server():
-    asyncio.run(main())
-
-def frame_grabber():
-    global latest_frame
-    while True:
-        ret, frame = camera.read()
-        if not ret:
-            continue
-        latest_frame = frame.copy()
-        time.sleep(0.01)
-        
-
-
-if __name__ == "__main__":
-    # สร้างโฟลเดอร์สำหรับเก็บภาพถ่ายหากยังไม่มี
-    if not os.path.exists("captures"):
-        os.makedirs("captures")
+    async def main():
+        print("WebSocket server starting...")
+        async with websockets.serve(handler, "", 1234):
+            await asyncio.Future()
+    
+    def start_websocket_server():
+        asyncio.run(main())
+    
+    def frame_grabber():
+        global latest_frame
+        while True:
+            ret, frame = camera.read()
+            if not ret:
+                continue
+            latest_frame = frame.copy()
+            time.sleep(0.01)
+            
+    
+    
+    if __name__ == "__main__":
+        # สร้างโฟลเดอร์สำหรับเก็บภาพถ่ายหากยังไม่มี
+        if not os.path.exists("captures"):
+            os.makedirs("captures")
 
     # เริ่มเธรดสำหรับ WebSocket server
     websocket_thread = threading.Thread(target=start_websocket_server)
