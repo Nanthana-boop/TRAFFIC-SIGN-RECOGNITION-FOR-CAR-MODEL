@@ -15,186 +15,165 @@
     from ultralytics import YOLO
     from datetime import datetime
     from mpu6050 import mpu6050
-
-app = Flask(__name__)
+    
+# เรียกใช้งาน Flask
+    app = Flask(__name__)
 
 # กำหนดตัวแปร camera สำหรับการใช้งานร่วมกัน
-camera = cv2.VideoCapture(0)  # ดึงสัญญาณจากกล้อง (0 คือกล้องเริ่มต้น)
-if not camera.isOpened():
-    raise ValueError("ไม่สามารถเปิดกล้องได้ กรุณาตรวจสอบการเชื่อมต่อของกล้อง.")
+    camera = cv2.VideoCapture(0)  # ดึงสัญญาณจากกล้อง (0 คือกล้องเริ่มต้น)
+    if not camera.isOpened():
+        raise ValueError("ไม่สามารถเปิดกล้องได้ กรุณาตรวจสอบการเชื่อมต่อของกล้อง.")
 
-latest_frame = None
-motor_lock = threading.Lock()
-gyro_lock = threading.Lock()
+    latest_frame = None
+    motor_lock = threading.Lock()
+    gyro_lock = threading.Lock()
 
 
-@app.route('/')
-def index():
-    return render_template('holdbtn.html')
+    @app.route('/')
+    def index():
+        return render_template('holdbtn.html')
 
 
 # ฟังก์ชันสำหรับสตรีมวิดีโอ
-def generate_frames():
-    global latest_frame
-    while True:
-        if latest_frame is None:
-            continue
-        frame = latest_frame.copy()
+    def generate_frames():
+        global latest_frame
+        while True:
+            if latest_frame is None:
+                continue
+            frame = latest_frame.copy()
         
-        time.sleep(0.1)
+            time.sleep(0.1)
         
 
-        ret, buffer = cv2.imencode('.jpg', frame)
-        if not ret:
-            continue
-        frame = buffer.tobytes()
+            ret, buffer = cv2.imencode('.jpg', frame)
+            if not ret:
+                continue
+            frame = buffer.tobytes()
 
-        # ส่งเฟรมเป็นไบต์ในรูปแบบของสตรีมวิดีโอ
-        yield (b'--frame\r\n'
+# ส่งเฟรมเป็นไบต์ในรูปแบบของสตรีมวิดีโอ
+            yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-        time.sleep(0.03333)
+            time.sleep(0.03333)
 
-@app.route('/video_feed')
-def video_feed():
-    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-#-------------------------------------------------------------------------------------------------------#
+    @app.route('/video_feed')
+    def video_feed():
+        return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 # การตั้งค่าขา GPIO สำหรับมอเตอร์
-motor1 = Motor(forward=17, backward=27)  # มอเตอร์ตัวที่ 1 ขวาหน้า
-motor2 = Motor(forward=26, backward=19)  # มอเตอร์ตัวที่ 2 ซ้ายหน้า
-motor3 = Motor(forward=25, backward=9)   # มอเตอร์ตัวที่ 3 ซ้ายหลัง
-motor4 = Motor(forward=20, backward=21)  # มอเตอร์ตัวที่ 4 ขวาหลัง
+    motor1 = Motor(forward=17, backward=27)  # มอเตอร์ตัวที่ 1 ขวาหน้า
+    motor2 = Motor(forward=26, backward=19)  # มอเตอร์ตัวที่ 2 ซ้ายหน้า
+    motor3 = Motor(forward=25, backward=9)   # มอเตอร์ตัวที่ 3 ซ้ายหลัง
+    motor4 = Motor(forward=20, backward=21)  # มอเตอร์ตัวที่ 4 ขวาหลัง
 
 # การตั้งค่าขา GPIO สำหรับเซ็นเซอร์อัลตร้าโซนิค
-ultrasonic_sensor = DistanceSensor(echo=6, trigger=5)
+    ultrasonic_sensor = DistanceSensor(echo=6, trigger=5)
 
 # ฟังก์ชันควบคุมมอเตอร์
-def stop_all():
-    global auto_running, stop_running
-    auto_running = False
-    stop_running = True
-    stop_movement()  # หยุดมอเตอร์ทั้งหมด
-    print("System stopped.")
+    def stop_all():
+        global auto_running, stop_running
+        auto_running = False
+        stop_running = True
+        stop_movement()  # หยุดมอเตอร์ทั้งหมด
+        print("System stopped.")
     
-def stop_all_threads():
-    global auto_running, sensor_running, yolo_detected
-    auto_running = False  # หยุดการทำงานของโหมดอัตโนมัติ
-    sensor_running = False  # หยุดการทำงานของเซ็นเซอร์อัลตร้าโซนิค
-    yolo_detected = False  # ปิดการทำงานของ YOLO
-    stop_movement()  # หยุดมอเตอร์ทั้งหมด
-    print("All systems and threads stopped.")
+    def stop_all_threads():
+        global auto_running, sensor_running, yolo_detected
+        auto_running = False  # หยุดการทำงานของโหมดอัตโนมัติ
+        sensor_running = False  # หยุดการทำงานของเซ็นเซอร์อัลตร้าโซนิค
+        yolo_detected = False  # ปิดการทำงานของ YOLO
+        stop_movement()  # หยุดมอเตอร์ทั้งหมด
+        print("All systems and threads stopped.")
 
-def stop_movement():
-    print("หยุดมอเตอร์ทั้งหมด") 
-    motor1.stop()
-    motor2.stop()
-    motor3.stop()
-    motor4.stop()
+    def stop_movement():
+        print("หยุดมอเตอร์ทั้งหมด") 
+        motor1.stop()
+        motor2.stop()
+        motor3.stop()
+        motor4.stop()
     
-def move_forward(): #(speed=0.5):
-    with gyro_lock:  # ใช้ lock เพื่อป้องกันการทำงานซ้อนทับ
+    def move_forward(): #(speed=0.5):
+        with gyro_lock:  # ใช้ lock เพื่อป้องกันการทำงานซ้อนทับ
+            motor1.forward(0.5)
+            motor2.forward(0.5)
+            motor3.forward(0.7)
+            motor4.forward(0.5)
+
+    def move_backward():
+        print("Moving backward")  # เพิ่มคำสั่งพิมพ์เพื่อดีบัก
+        motor1.backward(0.5)
+        motor2.backward(0.5)
+        motor3.backward(0.5)
+        motor4.backward(0.5)
+    
+    def turn_left():
+        print("Attempting to turn left")
         motor1.forward(0.5)
-        motor2.forward(0.5)
-        motor3.forward(0.7)
         motor4.forward(0.5)
+        motor2.backward(0.5)
+        motor3.backward(0.5)
 
-def move_backward():
-    print("Moving backward")  # เพิ่มคำสั่งพิมพ์เพื่อดีบัก
-    motor1.backward(0.5)
-    motor2.backward(0.5)
-    motor3.backward(0.5)
-    motor4.backward(0.5)
+    def turn_right():
+        print("Attempting to turn right")
+        motor2.forward(0.5)
+        motor3.forward(0.5)
+        motor1.backward(0.5)
+        motor4.backward(0.5)
     
-def turn_left():
-    print("Attempting to turn left")
-    motor1.forward(0.5)
-    motor4.forward(0.5)
-    motor2.backward(0.5)
-    motor3.backward(0.5)
-
+    def no_turn_left():
+        print("เจอป้ายห้ามเลี้ยวซ้าย , เลี้ยวขวาค่ะ")
+        motor2.forward(0.5)
+        motor3.forward(0.5)
+        motor1.backward(0.5)
+        motor4.backward(0.5)
     
-def turn_right():
-    print("Attempting to turn right")
-    motor2.forward(0.5)
-    motor3.forward(0.5)
-    motor1.backward(0.5)
-    motor4.backward(0.5)
+    def no_turn_right():
+        print("เจอป้ายห้ามเลี้ยวขวา , เลี้ยวซ้ายค่ะ")
+        motor1.forward(0.5)
+        motor4.forward(0.5)
+        motor2.backward(0.5)
+        motor3.backward(0.5)
+
+    def turn_left_opj():
+        print("สิ่งกีดขวาง เลี้ยวซ้าย")
+        motor1.forward(0.4)
+        motor4.forward(0.4)
+        motor2.backward(0.4)
+        motor3.backward(0.4)
+        time.sleep(0.2)
     
-def no_turn_left():
-    print("เจอป้ายห้ามเลี้ยวซ้าย , เลี้ยวขวาค่ะ")
-    motor2.forward(0.5)
-    motor3.forward(0.5)
-    motor1.backward(0.5)
-    motor4.backward(0.5)
-    
-def no_turn_right():
-    print("เจอป้ายห้ามเลี้ยวขวา , เลี้ยวซ้ายค่ะ")
-    motor1.forward(0.5)
-    motor4.forward(0.5)
-    motor2.backward(0.5)
-    motor3.backward(0.5)
+    def back():
+        print("สิ่งกีดขวาง เลี้ยวซ้าย")
+        motor2.backward(0.5)  
+        # ล้อซ้ายหน้าหมุนไปข้างหน้า
+        motor1.forward(0.5)   
+        # ล้อซ้ายหลังหมุนไปข้างหน้า
+        motor3.forward(0.5)   
+        # ล้อขวาหลังหมุนถอยหลัง
+        motor4.backward(0.5)  
 
-def turn_left_opj():
-    print("สิ่งกีดขวาง เลี้ยวซ้าย")
-    motor1.forward(0.4)
-    motor4.forward(0.4)
-    motor2.backward(0.4)
-    motor3.backward(0.4)
-    time.sleep(0.2)
-    
-def back():
-    print("สิ่งกีดขวาง เลี้ยวซ้าย")
-    motor2.backward(0.5)  
-    # ล้อซ้ายหน้าหมุนไปข้างหน้า
-    motor1.forward(0.5)   
-    # ล้อซ้ายหลังหมุนไปข้างหน้า
-    motor3.forward(0.5)   
-    # ล้อขวาหลังหมุนถอยหลัง
-    motor4.backward(0.5)  
+    # ฟังก์ชันสำหรับหมุนรถกลับ 180 องศา
+    def turn_around_180():
+        print("กำลังหมุนรถกลับ 180 องศา.")
+        # หมุนล้อซ้ายไปข้างหน้า และล้อขวาไปข้างหลัง
+        motor1.backward(0.5)  # ขวาหน้าหมุนไปข้างหลัง
+        motor4.backward(0.5)
+        motor2.forward(0.5)  # ซ้ายหน้าหมุนไปข้างหน้า
+        motor3.forward(0.5)  # ซ้ายหลังหมุนไปข้างหน้า
+        # ขวาหลังหมุนไปข้างหลัง
+        # หน่วงเวลาให้หมุนครบ 180 องศา
+        time.sleep(0.3)  # ปรับระยะเวลานี้ให้เหมาะสมตามการทดสอบ
 
-# ฟังก์ชันสำหรับหมุนรถกลับ 180 องศา
-def turn_around_180():
-    print("กำลังหมุนรถกลับ 180 องศา.")
+        print("หมุนกลับ 180 องศาเสร็จเรียบร้อยแล้ว.")
+        
 
-    # หมุนล้อซ้ายไปข้างหน้า และล้อขวาไปข้างหลัง
-    motor1.backward(0.5)  # ขวาหน้าหมุนไปข้างหลัง
-    motor4.backward(0.5)
-    motor2.forward(0.5)  # ซ้ายหน้าหมุนไปข้างหน้า
-    motor3.forward(0.5)  # ซ้ายหลังหมุนไปข้างหน้า
-      # ขวาหลังหมุนไปข้างหลัง
-
-    # หน่วงเวลาให้หมุนครบ 180 องศา
-    time.sleep(0.3)  # ปรับระยะเวลานี้ให้เหมาะสมตามการทดสอบ
-
-    # หยุดมอเตอร์หลังจากหมุนครบ
-    # stop_movement()
-
-    print("หมุนกลับ 180 องศาเสร็จเรียบร้อยแล้ว.")
-    
-# ฟังก์ชันสำหรับหมุนรถกลับ 180 องศาโดยไม่ใช้เซ็นเซอร์
-def turn_around_180_left():
-    print("กำลังหมุนรถกลับ 180 องศาไปทางซ้าย.")
-
-    motor3.backward(0.5)  # ซ้ายหน้าหมุนไปข้างหลัง
-    motor2.backward(0.5)  # ซ้ายหลังหมุนไปข้างหลัง
-    motor1.forward(0.5)  # ขวาหน้าหมุนไปข้างหน้า
-    motor4.forward(0.5)  # ขวาหลังหมุนไปข้างหน้า
-
-    # หน่วงเวลาให้หมุนครบ 180 องศา
-    time.sleep(0.3)  # ปรับเวลานี้ให้เหมาะสมตามการทดสอบ
-
-    # # หยุดมอเตอร์หลังจากหมุนครบ
-    # stop_movement()
-
-    print("หมุนไปทางซ้าย 180 องศาเสร็จเรียบร้อยแล้ว.")
-
-
-
-
-
-#-------------------------------------------------------------------------------------------------------#
-
+    def turn_around_180_left():
+        print("กำลังหมุนรถกลับ 180 องศาไปทางซ้าย.")
+        motor3.backward(0.5)  # ซ้ายหน้าหมุนไปข้างหลัง
+        motor2.backward(0.5)  # ซ้ายหลังหมุนไปข้างหลัง
+        motor1.forward(0.5)  # ขวาหน้าหมุนไปข้างหน้า
+        motor4.forward(0.5)  # ขวาหลังหมุนไปข้างหน้า
+        time.sleep(0.3)  # ปรับเวลานี้ให้เหมาะสมตามการทดสอ
+        print("หมุนไปทางซ้าย 180 องศาเสร็จเรียบร้อยแล้ว.")
 
 
 
